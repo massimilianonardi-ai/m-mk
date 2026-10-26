@@ -1,0 +1,623 @@
+NAME
+    mk - orchestrate a project's development lifecycle
+
+SYNOPSIS
+    mk [options] [--] <goal> [<goal> ...]
+    mk --watch [options] [--] <goal> [<goal> ...]
+    mk [options] --goals
+    mk [options] --show-goal <goal>
+
+DESCRIPTION
+    mk is the project development-lifecycle orchestrator of the technical m layer.
+
+    A project is described by declarative JSON in mk.json at the project root.
+    Without --project, mk searches the current directory and then parent
+    directories for the first mk.json.
+
+    Goal names are project data. Names such as build, test, run, clean or docs
+    have no built-in semantics unless the project defines them.
+
+    A goal selects one or more root operations. Operations may have prerequisite
+    operations and may execute an action. The first action type is process.
+
+    Version 2 additionally supports project-to-project dependencies, declarative
+    external requirements, context-derived file collections, trusted operation
+    providers, declarative operation guards, named outputs, incremental freshness
+    and runtime plan refinement. mk.json remains data; it does not name or embed
+    arbitrary JavaScript resolver modules.
+
+    The lifecycle engine is implemented in JavaScript and requires an
+    m-managed nodejs package declared as a pkg dependency. mk does not install that
+    runtime implicitly.
+
+OPTIONS
+    --project <path>
+        Select <path> as the project root instead of performing upward discovery.
+
+    --profile <profile>
+        Apply the named profile overlay from mk.json.
+
+    --watch
+        Run a version-2 lifecycle request initially and again whenever its
+        authoritative trigger identity changes.
+
+        Watch is an execution mode, not a project goal or mk.json namespace.
+        It is incompatible with --plan, --goals and --show-goal. The first
+        baseline has no public polling interval, debounce, host notification
+        backend or stop-on-cycle-failure option.
+
+        Every trigger-resolution pass and lifecycle cycle starts through a fresh
+        m bootstrap. A temporary invalid root or active-child configuration pauses
+        the session without running lifecycle work; the last valid trigger
+        baseline is retained until valid resolution returns. Failed lifecycle
+        cycles are reported and the session waits for another relevant trigger
+        change. SIGINT/SIGTERM terminate the session and are forwarded to an
+        active lifecycle child.
+
+    --plan
+        Resolve the requested goal set from declarative configuration and the
+        currently observable project/runtime context without executing project
+        operations.
+
+        For version 1, write the existing line-oriented fully resolved operation
+        plan. For version 2, write structured JSON describing currently relevant
+        collections, providers and operations. A collection/provider that cannot
+        yet be resolved remains pending; an operation whose guard lacks required
+        evidence remains conditional.
+
+    --goals
+        List the available goal names in ascending lexical order.
+
+    --show-goal <goal>
+        Resolve one goal. Version 1 writes JSON containing goal, roots and the
+        fully resolved operation list. Version 2 writes goal, roots and the same
+        structured plan used by --plan.
+
+    --
+        End option processing. Remaining operands are goal names.
+
+WATCH EXECUTION (VERSION 2)
+    Watch trigger identity is derived by trusted mk resolution from the selected
+    normalized model and currently reachable lifecycle evidence. It includes
+    declared operation inputs, reachable collection member content, process
+    executable/effective-environment identity, resolved requirement/provider
+    identity, incremental fingerprints and incremental declared-output validity.
+
+    Active project dependencies contribute recursively through child-owned opaque
+    trigger digests; their internal lifecycle graphs are not flattened into the
+    parent watch identity.
+
+    Ordinary non-incremental outputs that are neither consumed as declared inputs
+    nor incremental freshness evidence are not watch triggers merely because their
+    bytes change.
+
+    The first implementation uses portable polling only as an internal wakeup
+    mechanism. Polling cadence is not public project semantics.
+
+PROJECT CONFIGURATION
+    mk.json requires a supported numeric version.
+
+    Version 1 accepts these top-level members:
+
+        version
+        environment
+        goals
+        operations
+        profiles
+
+    Version 2 accepts:
+
+        version
+        environment
+        goals
+        operations
+        collections
+        providers
+        dependencies
+        requirements
+        profiles
+
+    Unknown members are rejected.
+
+    goals maps each goal name to an array of root operation/provider names.
+
+    In version 1, operations accept prerequisites and action.
+
+    In version 2, operations additionally accept:
+
+        requirements
+            Optional array of named external requirements. The operation cannot
+            become ready until all current requirements are satisfied.
+
+        inputs
+            Optional named path/collection/output data inputs. Input identity is
+            independent from incremental reuse policy and may be declared by an
+            otherwise ordinary non-incremental operation.
+
+        when
+            Optional declarative condition controlling whether the operation is
+            selected when its operands become known.
+
+        outputs
+            Optional map of named outputs. Each output currently declares a
+            pathname relative to the project root unless absolute.
+
+        failure
+            "stop" (default) or "continue". stop preserves normal fail-fast
+            behavior. continue records a failed execution result so later
+            conditions can observe it and refinement can continue. A failed
+            operation still does not satisfy an ordinary prerequisite.
+
+        incremental
+            Optional incremental-freshness declaration for an ordinary process
+            operation. The operation must declare at least one named output.
+
+PROCESS ACTION
+    The process action has this shape:
+
+        {
+          "type": "process",
+          "command": "mvn",
+          "args": ["package"],
+          "cwd": ".",
+          "env": {
+            "NAME": "value"
+          }
+        }
+
+    command is required. args, cwd and env are optional. cwd defaults to the
+    project root; relative cwd values resolve from the project root. mk does not
+    implicitly invoke a shell for process actions.
+
+COLLECTIONS (VERSION 2)
+    The first collection type is files:
+
+        {
+          "type": "files",
+          "root": "src",
+          "suffixes": [".c", ".cpp"],
+          "include": ["main.cpp"],
+          "exclude": ["old.cpp"],
+          "after": ["generate"]
+        }
+
+    root is required. Discovery is recursive below root.
+
+    Without include, mk discovers the current regular files below root. This is
+    the normal declarative form when the directory itself defines the intended
+    source set; mk.json does not need to copy the directory inventory.
+
+    include is an explicit relative-path selection used when intended membership
+    differs from the default discovery. exclude removes exact relative paths from
+    either selection form. suffixes filters selected relative paths by suffix.
+
+    after is an optional array of operations/providers that must complete
+    successfully before the collection becomes authoritative during execution.
+    Until then the collection remains pending. This prevents a generated-source
+    collection from treating an old output directory as the result of the current
+    lifecycle request.
+
+    A missing collection root with no pending after barrier resolves to an empty
+    collection.
+
+PROVIDERS (VERSION 2)
+    providers are a trusted mk boundary that derives ordinary operations from
+    declarative input. Project configuration selects a registered provider type;
+    it does not provide an executable resolver pathname/module.
+
+    The first provider type is map-process:
+
+        {
+          "type": "map-process",
+          "collection": "sources",
+          "prerequisites": ["prepare"],
+          "inputs": {
+            "config": {"path": "config/${item}.cfg"}
+          },
+          "outputs": {
+            "artifact": {"path": "out/${item}.o"}
+          },
+          "incremental": {},
+          "action": {
+            "type": "process",
+            "command": "tool",
+            "args": ["${item}"]
+          }
+        }
+
+    inputs, outputs and incremental are optional. Without them, map-process retains
+    its original non-incremental behavior.
+
+    For every resolved collection item, map-process derives one ordinary process
+    operation. ${item} is substituted in command, args, cwd and env values of the
+    provider action template, in provider path-input values and in declared output
+    pathnames. Collection-input references and output-input operation/name
+    references remain literal lifecycle references.
+
+    Every derived member receives a trusted private path input named $item whose
+    pathname is the concrete collection item. Project configuration cannot define
+    that private input name. It makes mapped-item content part of ordinary
+    operation identity without duplicating the map relation in mk.json.
+
+    Provider inputs use the same path/collection/output forms as ordinary
+    operation inputs. Provider outputs use the same named-path output form.
+    Provider incremental opt-in uses only:
+
+        "incremental": {}
+
+    The legacy ordinary-operation incremental.inputs compatibility form is not
+    accepted on provider templates. An incremental provider must declare at least
+    one named output.
+
+    Each derived incremental member reuses the existing ordinary-operation
+    fingerprint, output-verification, freshness-record and up-to-date machinery.
+    There is no provider-level aggregate freshness record. Member identity is
+    based on provider identity plus collection-item pathname identity rather than
+    collection enumeration position, so add/remove/reorder of collection
+    membership does not by itself invalidate unchanged reachable members.
+
+    A provider may also declare a requirements array. Its derived work cannot run
+    until those named requirements are currently satisfied.
+
+    The provider name acts as an aggregate operation. Operations/goals may depend
+    on it. The aggregate is satisfied after the collection is resolved, provider
+    requirements and prerequisites are satisfied, and every derived item operation
+    plus collection after barriers are satisfied. An up-to-date derived member
+    satisfies this relation like any other up-to-date operation.
+
+FACILITY REQUIREMENTS (VERSION 2)
+    requirements declares named external conditions. The first type is facility:
+
+        {
+          "type": "facility",
+          "facility": "java",
+          "constraints": [">=21", "<26"]
+        }
+
+    facility is a provider-independent pkg facility identity. constraints uses the
+    existing pkg facility compatibility language.
+
+    Operations and providers refer to named requirements through their requirements
+    arrays. Only requirements reachable from the requested lifecycle are queried.
+
+    mk resolves a facility requirement through:
+
+        pkg requirement resolve <facility> <constraint>...
+
+    That package-owned query uses the configured system facility default and
+    validates the selected installed provider against every compatibility
+    constraint. mk does not create package-consumer bindings, install packages,
+    change provider defaults or choose a provider implicitly.
+
+    A reachable requirement is satisfied or unsatisfied. Unsatisfied requirements
+    remain visible in --plan and block only their consumer nodes. Execution
+    re-resolves them during normal runtime refinement, so an explicit prerequisite
+    may change relevant external state before the consumer becomes ready.
+
+    Facility requirements are gates, not a second command/environment projection
+    layer. Facility commands/environment remain supplied by normal m/pkg bootstrap
+    semantics.
+
+OPERATION INPUTS AND INCREMENTAL FRESHNESS (VERSION 2)
+    Operation inputs are first-class lifecycle data identity:
+
+        {
+          "inputs": {
+            "source": {"path": "src/main.c"},
+            "sources": {"collection": "sources"},
+            "generated": {"output": {"operation": "generate", "name": "artifact"}}
+          },
+          "incremental": {},
+          "action": {
+            "type": "process",
+            "command": "cc",
+            "args": ["..."]
+          },
+          "outputs": {
+            "artifact": {"path": "out/app"}
+          }
+        }
+
+    inputs is a named map. The first supported source forms are path, collection
+    and another operation's named output. An output input is a data dependency on
+    its producer and does not require the same relation to be repeated as an
+    ordinary prerequisite merely for reachability. Collection inputs make their
+    collection part of the operation's reachable data relation.
+
+    inputs does not itself enable caching or assert that the action is pure.
+    Without incremental, the operation executes normally whenever reached.
+
+    incremental opts an ordinary process operation into freshness reuse using the
+    shared operation inputs. The operation must also declare at least one named
+    output.
+
+    The previous incremental.inputs form remains accepted for compatibility and is
+    normalized to the same shared operation input map. A non-empty inputs map and
+    a non-empty incremental.inputs map on the same operation are rejected as an
+    ambiguous duplicate declaration.
+
+    Incremental identity is content-based. Supported regular files and directory
+    trees are fingerprinted deterministically with SHA-256; modification time is
+    not freshness identity. The effective operation definition, process
+    environment, resolved executable identity, selected concrete providers for
+    referenced facility requirements and resolved named inputs also participate in
+    the operation fingerprint.
+
+    A previous success is reusable only when the current effective fingerprint
+    matches and every declared output still exists in supported fingerprintable
+    form with the same recorded output fingerprint. Unsupported or corrupt
+    freshness metadata produces a conservative miss and ordinary execution.
+
+    A verified hit has state up-to-date. It satisfies ordinary prerequisites,
+    collection after barriers and named-output evidence in the current request.
+    It does not fabricate process-result evidence. If a reachable condition
+    observes result.status, result.ok, result.signal or result.error for an
+    otherwise up-to-date producer, that producer executes in the current request.
+
+    Only successful executions with complete fingerprintable declared outputs
+    refresh freshness metadata. Failed execution never creates reusable freshness
+    state.
+
+    Incremental cache state is non-authoritative user cache state resolved through:
+
+        state-path user sys mk cache
+
+    Private layout below that semantic cache area is an mk implementation detail.
+    Freshness metadata remains scoped by canonical project root plus operation.
+    A copied/moved checkout therefore starts without local freshness evidence.
+
+    In addition to freshness metadata, successful incremental operations may
+    publish verified local copies of declared output files/directory trees in the
+    same non-authoritative user cache area. Artifact bytes remain separate from
+    freshness records and are keyed by the existing effective operation
+    fingerprint, so equivalent work may be reused across different canonical
+    project roots.
+
+    Restore is attempted only during ordinary execution. --plan never restores or
+    otherwise mutates project outputs or creates receiving-checkout freshness
+    metadata.
+
+    A restoration candidate is accepted only when its selected immutable
+    manifest/fingerprint and every cached output snapshot verify completely.
+    Cached artifacts are staged and verified before replacing declared
+    destinations. Missing, corrupt, incomplete or unsupported artifact state is a
+    conservative miss and the action executes normally.
+
+    A checkout may restore from a shared local candidate without already having a
+    local freshness record. Successful restoration writes that checkout's own
+    project-scoped freshness evidence, then the next normal refinement pass
+    observes ordinary up-to-date output evidence. Restoration does not fabricate
+    process-result fields; reachable result.status/result.ok/result.signal/
+    result.error observation still forces actual execution.
+
+    The artifact representation supports the same regular-file/directory forms as
+    incremental output snapshots, including portable mode bits and content hashes.
+    Symlinks and special objects remain non-restorable.
+
+    Shared-local publication uses verified immutable candidates plus an atomic
+    selector per fingerprint. Equivalent concurrent publishers may converge
+    idempotently without a global lock. Writers do not destructively replace
+    another process's verified committed candidate. Corrupt selected state is a
+    conservative miss; refresh publishes/selects another verified candidate.
+
+    The same per-operation freshness/restoration machinery also applies to derived
+    map-process members when their provider template opts into incremental: {}.
+    Output-input consumers observe restored producer outputs through normal
+    refinement. No aggregate provider cache is introduced.
+
+    Shared-local artifact state also receives private best-effort structural
+    hygiene when mk touches a fingerprint namespace. The currently selected
+    candidate is preserved; committed unselected candidates and abandoned
+    staging/selector residue may be reclaimed. Reader leases are not required:
+    reclamation first removes an unselected immutable candidate from the canonical
+    namespace and transactional restore degrades safely to ordinary execution if
+    those bytes disappear before commit.
+
+    Publication and hygiene coordinate through private POSIX FIFO activity tokens.
+    Process death closes the owning descriptor, so a leftover token becomes
+    detectably stale without PID inspection or age-based timeout.
+
+    This hygiene is not a retention policy. The current baseline does not provide
+    remote/network artifact transport, cross-user sharing/trust, TTL/LRU or
+    cache-size policy, whole-fingerprint eviction, global sweep guarantees, a
+    public artifact-cache management command, or stale provider-member output/
+    freshness cleanup.
+
+CONDITIONS (VERSION 2)
+    An operation when condition is declarative. Supported operators are:
+
+        eq ne lt lte gt gte
+        truthy
+        not
+
+    eq/ne compare resolved scalar values for equality/inequality. lt/lte/gt/gte
+    compare resolved scalar values using the current JavaScript runtime ordering.
+
+    An operand may be a JSON scalar literal or one source object:
+
+        {"result":{"operation":"attempt","field":"status"}}
+        {"output":{"operation":"build","name":"artifact","property":"size"}}
+        {"state":{"path":"marker","property":"exists"}}
+
+    Result fields are:
+
+        status
+        ok
+        signal
+        error
+
+    Output/state properties are:
+
+        exists
+        size
+
+    A result operand becomes known after the referenced operation actually has a
+    terminal execution result. An output operand is tied to that current-run
+    result: after producer success its declared pathname is observed; after
+    producer failure, exists is false while size remains unavailable. An old
+    pathname left by an earlier request is therefore not treated as a newly
+    produced output. State is observed from the current filesystem when the
+    condition is evaluated.
+
+    A condition reference creates an observation dependency: the guarded operation
+    waits for the referenced operation's evidence, but that relationship is not an
+    ordinary success prerequisite. This allows a failure declared continue to be
+    observed by a fallback branch.
+
+PROJECT DEPENDENCIES (VERSION 2)
+    dependencies declares project-to-project lifecycle relations. A dependency
+    currently has this shape:
+
+        {
+          "project": "../core",
+          "goals": {
+            "build": ["compile"],
+            "check": ["verify"]
+          },
+          "profile": "release"
+        }
+
+    project is required. Relative paths resolve from the declaring project root.
+
+    goals maps requested parent-project goals to requested child-project goals.
+    An unmapped parent goal does not activate that dependency. If multiple
+    requested parent goals map to the same direct dependency, their child goals
+    are de-duplicated and sent as one child request.
+
+    profile is optional. The parent profile is not inherited implicitly by the
+    child project; a child profile is selected only when the dependency declares
+    one explicitly.
+
+    Active dependencies are executed by separate recursive mk engine processes.
+    The child owns its own operations, providers, collections, conditions and
+    further project dependencies. The parent does not flatten that graph.
+
+    Active direct dependencies must succeed before parent-local lifecycle work
+    begins. Recursive project cycles are rejected from canonical project identity
+    in the active invocation chain.
+
+    Independent sibling branches are independent lifecycle requests. A diamond
+    dependency may therefore request the same downstream project more than once;
+    no request-wide exactly-once/cache semantics are implied by dependencies.
+
+PROFILES
+    Version 1 profiles may contain environment, goals and operations.
+
+    Version 2 profiles may additionally contain collections, providers,
+    dependencies and requirements.
+
+    Profile entries replace same-named base entries and may add new entries;
+    absent base entries remain inherited. Environment entries replace
+    same-named base values. No profile is selected implicitly.
+
+EXECUTION
+    Multiple goal operands form one requested set. They do not imply semantic
+    left-to-right ordering between otherwise independent goals.
+
+    Version 1 retains the fully resolved sequential executor.
+
+    Version 2 first delegates active project dependencies for the requested goal
+    set and requires them to succeed. It then repeatedly resolves only the dynamic
+    definitions, external requirements and declared data dependencies reachable
+    from the requested local goals, establishes verified up-to-date work when
+    possible, executes ready work, records results and refines the reachable plan.
+    Context-known files may therefore be concrete before the first action while
+    generated files remain pending until a generator runs.
+
+    Normal prerequisites require success (or a conditionally skipped operation).
+    A failed continued operation is terminal evidence but does not satisfy an
+    ordinary prerequisite.
+
+    The executor is sequential. This is an implementation property rather than a
+    semantic ordering rule for otherwise independent operations.
+
+    Process actions inherit standard input, standard output and standard error.
+    Their environment starts from the mk caller environment and is overlaid by
+    project, profile and action environment entries in that order.
+
+OUTPUT
+    Normal successful execution adds no required mk output beyond action output.
+
+    --goals writes one goal name per line.
+
+    Version-1 --plan writes one operation name per line in planned execution order.
+
+    Version-2 --plan writes JSON with:
+
+        version
+        goals
+        dependencies
+        requirements
+        collections
+        providers
+        operations
+
+    Active dependency entries include the dependency name, canonical child project
+    root, requested child goals, optional explicit child profile and nested child
+    plan. Planning recursively asks child mk instances for plans but does not
+    execute their lifecycle work.
+
+    Reachable requirement entries include requirement name/type, facility,
+    constraints, satisfaction state and the selected concrete provider when
+    satisfied. Operation/provider entries include named and currently unsatisfied
+    requirements.
+
+    Resolved collection entries include current items; pending collections include
+    waitingFor. Provider entries identify their collection, current state and
+    derived operation names. Operation entries include state, prerequisites and
+    normalized inputs, plus observation/condition/derived-provider information when applicable.
+
+    Version-2 operation states are ready, blocked, conditional, skipped,
+    up-to-date, completed or failed. Provider states are pending, resolved or
+    completed; collection states are pending or resolved.
+
+ENVIRONMENT
+    Requires a nonempty m_ROOT inherited from an initialized m environment.
+    From an uninitialized host shell, invoke m mk [arguments].
+
+
+EXIT STATUS
+    0   Success.
+    1   Project/configuration/resolution/execution/runtime failure.
+    2   Invalid command invocation.
+
+FILES
+    <project-root>/mk.json
+        Declarative project configuration.
+
+REQUIREMENTS
+    nodejs
+        An installed/default m-managed nodejs package provides the current
+        JavaScript runtime used by the lifecycle engine.
+
+EXAMPLES
+    Execute a project-defined build goal:
+
+        mk build
+
+    Resolve without executing:
+
+        mk --plan build
+
+    Select a profile:
+
+        mk --profile release build
+
+    Watch a version-2 build goal:
+
+        mk --watch build
+
+    Request multiple goals as one plan:
+
+        mk test package
+
+    List goals:
+
+        mk --goals
+
+    Select another project:
+
+        mk --project ../other-project build
+
+SEE ALSO
+    pkg

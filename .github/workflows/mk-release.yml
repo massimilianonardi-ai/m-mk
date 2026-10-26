@@ -1,0 +1,70 @@
+name: mk release candidate and integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: massimilianonardi-ai/m
+          ref: 5c1e02a10e5300ab953d86aa677583f63e6a068d
+          path: m-source
+          persist-credentials: false
+      - name: Exercise real package integration and mk lifecycle
+        shell: sh
+        run: sh tests/run.sh m-source
+      - name: Validate source package and syntax
+        shell: sh
+        run: |
+          sh -n build.sh tests/run.sh
+          node --check bin/mk
+          node --check lib/mk.lib.js
+
+  publish:
+    needs: [validation]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build and verify source archive
+        shell: sh
+        run: |
+          sh build.sh release
+          cd release
+          sha256sum mk-v0.1.0-all.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          tar -tzf mk-v0.1.0-all.tar.gz | grep -q '^bin/mk$'
+          tar -tzf mk-v0.1.0-all.tar.gz | grep -q '^lib/mk.lib.js$'
+      - name: Publish immutable v0.1.0 release if not yet published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: sh
+        run: |
+          if gh release view v0.1.0 >/dev/null 2>&1
+          then
+            echo 'v0.1.0 exists: refusing to replace immutable release'
+            exit 0
+          fi
+          gh release create v0.1.0 release/mk-v0.1.0-all.tar.gz release/SHA256SUMS \
+            --target "$GITHUB_SHA" --title 'mk v0.1.0' \
+            --notes 'Independent source-only mk runtime for managed Node.js; package definitions are in pkg-catalog.'
