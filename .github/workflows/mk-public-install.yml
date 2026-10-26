@@ -1,0 +1,31 @@
+name: Published mk public install
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pkg-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: massimilianonardi-ai/m
+          ref: 5c1e02a10e5300ab953d86aa677583f63e6a068d
+          path: m-source
+          persist-credentials: false
+      - name: Install released mk using real public pkg
+        shell: sh
+        run: sh tests/install-live.sh m-source
