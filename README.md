@@ -50,3 +50,10 @@ The current semantic contract is in
 the move from the previous `rumiai-os` monolith. Existing source and the
 packaging proof are from PoC 073 at
 `rumiai-dev-PoCs/mk-package-local-runtime@fdf655405eb3a22c34b549c013387d0fa01c34ea`.
+
+## Local development example
+
+The [`examples/local-jsc`](examples/local-jsc/README.md) walkthrough shows
+`mk run` and `mk test` using a sibling JSC library project **before** package
+publication. Its isolated smoke test requires a separately installed `jsc`
+package and is deliberately not part of the package-local `mk` test.

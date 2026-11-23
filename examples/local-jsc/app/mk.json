@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "goals": {
+    "run": [
+      "start"
+    ],
+    "test": [
+      "verify"
+    ]
+  },
+  "dependencies": {
+    "greeting": {
+      "project": "../library",
+      "goals": {
+        "run": [
+          "build"
+        ],
+        "test": [
+          "build"
+        ]
+      }
+    }
+  },
+  "operations": {
+    "start": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "main.cjs"
+        ]
+      }
+    },
+    "verify": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "test.cjs"
+        ]
+      }
+    }
+  }
+}

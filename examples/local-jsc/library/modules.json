@@ -1,0 +1,13 @@
+{
+  "modules": [
+    {
+      "name": "sample",
+      "modules": [
+        {
+          "file": "src/greet.js",
+          "exports": "greet"
+        }
+      ]
+    }
+  ]
+}

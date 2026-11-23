@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "goals": {
+    "build": [
+      "compile"
+    ]
+  },
+  "operations": {
+    "prepare": {
+      "action": {
+        "type": "process",
+        "command": "mkdir",
+        "args": [
+          "-p",
+          "build"
+        ]
+      }
+    },
+    "compile": {
+      "prerequisites": [
+        "prepare"
+      ],
+      "inputs": {
+        "descriptor": {
+          "path": "modules.json"
+        },
+        "sources": {
+          "path": "src"
+        }
+      },
+      "outputs": {
+        "bundle": {
+          "path": "build/greeting.js"
+        }
+      },
+      "incremental": {},
+      "action": {
+        "type": "process",
+        "command": "jsc",
+        "args": [
+          "modules.json",
+          "build/greeting.js"
+        ]
+      }
+    }
+  }
+}
