@@ -174,3 +174,83 @@ wait "$watch_pid" 2>/dev/null || :
   exit 27
 }
 printf '%s\n' 'package-local watch re-entry PASS'
+
+
+# Context-aware project goals are exercised through mk, not a separate app launcher.
+# The bootstrap test remains independent so it can validate a fresh mk install.
+if [ -x "$root/bin/sys/context-run" ]
+then
+  command -p -- mkdir -- "$work/context-child"
+  cat > "$work/context-child/mk.json" <<'EOF_CHILD'
+{
+  "version": 2,
+  "context": ["pkg=nodejs@v26.8.2"],
+  "goals": {"build": ["generate"]},
+  "operations": {
+    "generate": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": ["-e", "require('node:fs').writeFileSync('marker.txt','context-child')"]
+      }
+    }
+  }
+}
+EOF_CHILD
+  command -p -- mkdir -- "$work/context-parent"
+  cat > "$work/context-parent/mk.json" <<'EOF_PARENT'
+{
+  "version": 2,
+  "goals": {"test": ["verify"]},
+  "dependencies": {
+    "child": {"project": "../context-child", "goals": {"test": ["build"]}}
+  },
+  "operations": {
+    "verify": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "-e",
+          "const fs=require('node:fs');if(fs.readFileSync('../context-child/marker.txt','utf8')!=='context-child')process.exit(63)"
+        ]
+      }
+    }
+  }
+}
+EOF_PARENT
+  "$root/m" mk --project "$work/context-parent" --plan test > "$work/context-plan.json"
+  [ -s "$work/context-plan.json" ] || exit 28
+  "$root/m" mk --project "$work/context-parent" test || exit 29
+  [ "$(command -p -- cat -- "$work/context-child/marker.txt")" = context-child ] || exit 30
+  m_MK_WATCH_TRIGGER=1 "$root/m" mk --project "$work/context-child" build > "$work/context-digest"
+  [ "$(command -p -- wc -c < "$work/context-digest")" -eq 65 ] || exit 31
+  command -p -- mkdir -- "$work/context-invalid"
+  cat > "$work/context-invalid/mk.json" <<'EOF_INVALID'
+{
+  "version": 2,
+  "context": ["pkg=not-installed@v999"],
+  "goals": {"test": ["must-not-run"]},
+  "operations": {
+    "must-not-run": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": ["-e", "require('node:fs').writeFileSync('ran.txt','wrong')"]
+      }
+    }
+  }
+}
+EOF_INVALID
+  if "$root/m" mk --project "$work/context-invalid" test > "$work/context-invalid.out" 2>&1
+  then
+    printf '%s\n' 'invalid project context incorrectly executed' >&2
+    exit 32
+  fi
+  [ ! -e "$work/context-invalid/ran.txt" ] || exit 33
+  "$root/m" mk --project "$work/context-invalid" --goals > "$work/context-goals"
+  [ "$(command -p -- cat -- "$work/context-goals")" = test ] || exit 34
+  printf '%s\n' 'context activation, dependency, --plan, watch digest, fail-closed PASS'
+else
+  printf '%s\n' 'context-run unavailable in supplied m checkout: optional context tests skipped'
+fi

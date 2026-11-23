@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "goals": {
+    "test": [
+      "package-integration"
+    ],
+    "test-jsc": [
+      "local-jsc-integration"
+    ]
+  },
+  "operations": {
+    "package-integration": {
+      "action": {
+        "type": "process",
+        "command": "sh",
+        "args": [
+          "-c",
+          "exec sh tests/run.sh \"$m_ROOT\""
+        ]
+      }
+    },
+    "local-jsc-integration": {
+      "action": {
+        "type": "process",
+        "command": "sh",
+        "args": [
+          "-c",
+          "exec sh tests/example-local-jsc.sh \"$m_ROOT/m\""
+        ]
+      }
+    }
+  }
+}

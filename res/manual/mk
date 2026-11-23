@@ -94,6 +94,33 @@ WATCH EXECUTION (VERSION 2)
     The first implementation uses portable polling only as an internal wakeup
     mechanism. Polling cadence is not public project semantics.
 
+
+CONTEXT (VERSION 2)
+    An optional project-root member "context" contains a non-empty array of
+    native m context selectors, for example:
+
+        "context": ["full-context=development"]
+
+    Supported selectors are pkg=..., system=..., user=..., locale=...,
+    osarch=..., provider.<facility>=... and full-context=... . No shell
+    code is evaluated, and missing/invalid context selections fail before
+    any project operation executes. A project without this member uses its
+    inherited m environment as before.
+
+    The context is selected in an isolated child before project planning,
+    execution, requirement checks and cache/watch observations. The caller's
+    environment remains unchanged. Dependencies may select their own context.
+    Listing goals does not require context activation.
+
+    On m-os versions supporting context-run, a pinned context provider is
+    checked against facility requirements; otherwise the original pkg
+    system-default requirement resolution is retained. Both paths are
+    read-only. Context selection never installs packages or changes defaults.
+
+    This feature requires m-os context-run when the optional context member
+    is present. Version-1 configurations remain unchanged.
+
+
 PROJECT CONFIGURATION
     mk.json requires a supported numeric version.
 
@@ -621,3 +648,4 @@ EXAMPLES
 
 SEE ALSO
     pkg
+

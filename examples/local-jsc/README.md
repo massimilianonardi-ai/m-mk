@@ -33,8 +33,12 @@ environment, configure/install the needed packages explicitly.
 An isolated smoke test (copies the example to a temporary directory):
 
 ```sh
-sh tests/example-local-jsc.sh /absolute/path/to/m
+m mk --project examples/local-jsc/app test
 ```
+
+The lower-level `tests/example-local-jsc.sh` remains an internal bootstrap
+fixture, callable by the root `mk test-jsc` goal; it is not the normal
+project testing interface.
 
 The smoke test is separate from `tests/run.sh` because that package-local
 `mk` test must not acquire a new JSC dependency.

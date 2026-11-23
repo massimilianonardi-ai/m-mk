@@ -36,14 +36,20 @@ integration.
 
 ## Validation
 
+From this repository, with a working m-os installation:
+
 ```sh
-sh tests/run.sh /path/to/m-checkout
+m mk test
+m mk test-jsc
 ```
 
-The test uses a disposable copy of the actual `m` runtime, materializes the
-package through the real `pkg` integration, installs managed Node.js, exercises
-planning and execution, then checks `--watch` re-entry. The catalog tree in
-`tests/fixtures` is *test data*, not the published catalog authority.
+The project-level tests are orchestrated through `mk`. The `test` goal
+runs the package/Node/watch integration suite, including context cases on
+m-os installations exposing context-run; `test-jsc` exercises the optional
+JSC example. The lower-level POSIX scripts remain available for first
+bootstrap verification before mk is installed, but are not the ordinary
+development entry point. The catalog tree in `tests/fixtures` is *test data*,
+not the published catalog authority.
 
 The current semantic contract is in
 `rumiai-dev/specifications/rumiai-os/MK.md`; it remains authoritative during
@@ -57,3 +63,27 @@ The [`examples/local-jsc`](examples/local-jsc/README.md) walkthrough shows
 `mk run` and `mk test` using a sibling JSC library project **before** package
 publication. Its isolated smoke test requires a separately installed `jsc`
 package and is deliberately not part of the package-local `mk` test.
+
+## Project-level context (opt-in)
+
+Version-2 `mk.json` can declare native m-os context selectors without
+changing existing goals, operations or the CLI:
+
+```json
+{"version":2,"context":["full-context=development"],"goals":{"test":["verify"]},
+ "operations":{"verify":{"action":{"type":"process","command":"node","args":["test.cjs"]}}}}
+```
+
+The context is activated in a child process before planning or running the
+project. Nested project dependencies may declare different contexts. Existing
+projects without `context` use the inherited environment unchanged. Context
+does not install missing packages; it selects installed packages/providers.
+
+For ordinary project tests, use `m mk test` (or `mk test` in an m shell).
+The repository root provides `mk test` for package integration and
+`mk test-jsc` for the optional JSC example. The POSIX scripts under
+`tests/` remain internal bootstrap fixtures so the package can be tested
+before the managed `mk` installation exists.
+
+See [context integration](docs/context-integration/README.md) for contract,
+compatibility, implementation and tests.
